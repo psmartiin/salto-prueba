@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Jump Tracker</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #ffffff;
+            color: #333333;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            text-align: center;
+            transition: background-color 0.2s;
+        }
+        .air-mode { background-color: #fff3cd; }
+        
+        #btn-start {
+            background-color: #007aff;
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            font-size: 18px;
+            border-radius: 10px;
+            font-weight: bold;
+            cursor: pointer;
+            margin-bottom: 30px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        
+        h1 { font-size: 28px; margin-bottom: 5px; }
+        #status { font-size: 24px; font-weight: bold; margin-bottom: 40px; color: #888; }
+        .metric { font-size: 20px; color: #555; margin: 10px 0; }
+        #time-val { font-size: 48px; font-weight: bold; color: #111; margin: 5px 0; }
+        #height-val { font-size: 28px; font-weight: bold; color: #6a0dad; margin: 5px 0; }
+    </style>
+</head>
+<body>
+
+    <button id="btn-start">Activar Sensor y Empezar</button>
+
+    <h1 id="title">Medidor de Saltos</h1>
+    <div id="status">Esperando activación...</div>
+
+    <div class="metric">Último salto:</div>
+    <div id="time-val">0.00 s</div>
+
+    <div class="metric">Altura estimada:</div>
+    <div id="height-val">0.0 cm</div>
+
+    <script>
+
+// --- VARIABLES DE ESTADO Y FILTRO ---
+let isPushedOff = false; // ¿Detectamos el impulso inicial?
+let isInAir = false;
+let takeoffTime = null;
+
+// Filtro de Paso Bajo (Suavizado)
+let smoothedAcc = 9.81; // Empezamos en gravedad normal
+const ALPHA = 0.3; // Factor de suavizado (0 = ignora el sensor, 1 = sin filtro)
+
+// Umbrales mejorados (ajustados para el filtro)
+const PUSH_THRESHOLD = 13.0;  // Fuerza de despegue inicial (Impulso)
+const FREE_FALL_THRESHOLD = 4.0; // Caída libre (Subimos el umbral porque el filtro lo aplasta un poco)
+const LANDING_THRESHOLD = 14.0;  // Impacto contra el suelo
+
+// Referencias a la UI
+const btnStart = document.getElementById('btn-start');
+const statusText = document.getElementById('status');
+const timeVal = document.getElementById('time-val');
+const heightVal = document.getElementById('height-val');
+
+btnStart.addEventListener('click', () => {
+    if (typeof DeviceMotionEvent.requestPermission === 'function') {
+        DeviceMotionEvent.requestPermission()
+            .then(permissionState => {
+                if (permissionState === 'granted') startTracking();
+                else alert("Permiso denegado.");
+            }).catch(console.error);
+    } else {
+        startTracking();
+    }
+});
+
+function startTracking() {
+    btnStart.style.display = 'none';
+    statusText.innerText = "LISTO PARA SALTAR";
+    statusText.style.color = "#000";
+
+    window.addEventListener('devicemotion', (event) => {
+        let x = event.accelerationIncludingGravity.x || 0;
+        let y = event.accelerationIncludingGravity.y || 0;
+        let z = event.accelerationIncludingGravity.z || 0;
+
+        // 1. Magnitud bruta actual
+        let currentAcc = Math.sqrt(x*x + y*y + z*z);
+
+        // 2. Aplicar el Filtro de Paso Bajo (Low-Pass Filter)
+        smoothedAcc = (ALPHA * currentAcc) + ((1 - ALPHA) * smoothedAcc);
+
+        // --- MÁQUINA DE ESTADOS ESTRICTA ---
+
+        // FASE 1: Detección del impulso (El salto hacia arriba)
+        if (!isInAir && smoothedAcc > PUSH_THRESHOLD) {
+            isPushedOff = true; 
+        }
+
+        // FASE 2: Detección de caída libre (Solo si hubo impulso previo)
+        if (!isInAir && isPushedOff && smoothedAcc < FREE_FALL_THRESHOLD) {
+            isInAir = true;
+            isPushedOff = false; // Reseteamos el impulso
+            takeoffTime = Date.now();
+            
+            statusText.innerText = "¡EN EL AIRE!";
+            statusText.style.color = "#d97706";
+            document.body.classList.add('air-mode');
+        }
+
+        // FASE 3: Detección de impacto (Aterrizaje)
+        else if (isInAir && smoothedAcc > LANDING_THRESHOLD) {
+            if (takeoffTime) {
+                let landingTime = Date.now();
+                let hangTime = (landingTime - takeoffTime) / 1000.0; 
+
+                // Un humano normal no salta menos de 0.2s ni más de 1.2s (récord mundial de Jordan es ~0.92s)
+                if (hangTime > 0.2 && hangTime < 1.5) {
+                    calculateMetrics(hangTime);
+                }
+            }
+            
+            isInAir = false;
+            takeoffTime = null;
+            statusText.innerText = "LISTO PARA SALTAR";
+            statusText.style.color = "#000";
+            document.body.classList.remove('air-mode');
+        }
+    });
+}
+
+function calculateMetrics(hangTime) {
+    const g = 9.81;
+    let heightMeters = (1/8) * g * Math.pow(hangTime, 2);
+    let heightCm = heightMeters * 100;
+
+    timeVal.innerText = hangTime.toFixed(2) + " s";
+    heightVal.innerText = heightCm.toFixed(1) + " cm";
+}
+    </script>
+</body>
+</html>
