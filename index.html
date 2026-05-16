@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Jump Tracker</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #ffffff;
+            color: #333333;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            text-align: center;
+            transition: background-color 0.2s;
+        }
+        .air-mode { background-color: #fff3cd; }
+        
+        #btn-start {
+            background-color: #007aff;
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            font-size: 18px;
+            border-radius: 10px;
+            font-weight: bold;
+            cursor: pointer;
+            margin-bottom: 30px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        
+        h1 { font-size: 28px; margin-bottom: 5px; }
+        #status { font-size: 24px; font-weight: bold; margin-bottom: 40px; color: #888; }
+        .metric { font-size: 20px; color: #555; margin: 10px 0; }
+        #time-val { font-size: 48px; font-weight: bold; color: #111; margin: 5px 0; }
+        #height-val { font-size: 28px; font-weight: bold; color: #6a0dad; margin: 5px 0; }
+    </style>
+</head>
+<body>
+
+    <button id="btn-start">Activar Sensor y Empezar</button>
+
+    <h1 id="title">Medidor de Saltos</h1>
+    <div id="status">Esperando activación...</div>
+
+    <div class="metric">Último salto:</div>
+    <div id="time-val">0.00 s</div>
+
+    <div class="metric">Altura estimada:</div>
+    <div id="height-val">0.0 cm</div>
+
+    <script>
+        // Variables de estado
+        let isInAir = false;
+        let takeoffTime = null;
+        const FREE_FALL_THRESHOLD = 2.5; 
+        const LANDING_THRESHOLD = 15.0;
+
+        // Referencias a los elementos visuales (UI)
+        const btnStart = document.getElementById('btn-start');
+        const statusText = document.getElementById('status');
+        const timeVal = document.getElementById('time-val');
+        const heightVal = document.getElementById('height-val');
+
+        // Función principal para encender el sensor
+        btnStart.addEventListener('click', () => {
+            // iOS 13+ requiere pedir permiso explícito
+            if (typeof DeviceMotionEvent.requestPermission === 'function') {
+                DeviceMotionEvent.requestPermission()
+                    .then(permissionState => {
+                        if (permissionState === 'granted') {
+                            startTracking();
+                        } else {
+                            alert("Permiso denegado para usar el sensor.");
+                        }
+                    })
+                    .catch(console.error);
+            } else {
+                // Navegadores que no requieren permiso (Android o iOS antiguos)
+                startTracking();
+            }
+        });
+
+        function startTracking() {
+            btnStart.style.display = 'none'; // Ocultar botón tras iniciar
+            statusText.innerText = "LISTO PARA SALTAR";
+            statusText.style.color = "#000";
+
+            window.addEventListener('devicemotion', (event) => {
+                // Usamos accelerationIncludingGravity porque en reposo es ~9.8 y en el aire es ~0
+                let x = event.accelerationIncludingGravity.x || 0;
+                let y = event.accelerationIncludingGravity.y || 0;
+                let z = event.accelerationIncludingGravity.z || 0;
+
+                // Magnitud del vector 3D
+                let acceleration = Math.sqrt(x*x + y*y + z*z);
+
+                // Detección de caída libre (Despegue)
+                if (!isInAir && acceleration < FREE_FALL_THRESHOLD) {
+                    isInAir = true;
+                    takeoffTime = Date.now();
+                    
+                    statusText.innerText = "¡EN EL AIRE!";
+                    statusText.style.color = "#d97706";
+                    document.body.classList.add('air-mode');
+                }
+                // Detección de impacto (Aterrizaje)
+                else if (isInAir && acceleration > LANDING_THRESHOLD) {
+                    if (takeoffTime) {
+                        let landingTime = Date.now();
+                        let hangTime = (landingTime - takeoffTime) / 1000.0; // En segundos
+
+                        // Filtro de ruido
+                        if (hangTime > 0.2) {
+                            calculateMetrics(hangTime);
+                        }
+                    }
+                    
+                    isInAir = false;
+                    takeoffTime = null;
+                    statusText.innerText = "LISTO PARA SALTAR";
+                    statusText.style.color = "#000";
+                    document.body.classList.remove('air-mode');
+                }
+            });
+        }
+
+        function calculateMetrics(hangTime) {
+            const g = 9.81;
+            // h = (1/8) * g * t²
+            let heightMeters = (1/8) * g * Math.pow(hangTime, 2);
+            let heightCm = heightMeters * 100;
+
+            // Actualizar interfaz
+            timeVal.innerText = hangTime.toFixed(2) + " s";
+            heightVal.innerText = heightCm.toFixed(1) + " cm";
+        }
+    </script>
+</body>
+</html>
